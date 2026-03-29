@@ -17,5 +17,18 @@ module.exports = {
   },
   portable: {
     artifactName: 'energysrc.exe'
+  },
+  mac: {
+    target: ['dmg', 'zip'],
+    icon: 'assets/icon.ico',
+    artifactName: 'energysrc-${arch}.${ext}',
+    category: 'public.app-category.utilities'
+  },
+  dmg: {
+    artifactName: 'energysrc.dmg'
+  },
+  linux: {
+    target: ['AppImage'],
+    artifactName: 'energysrc.${ext}'
   }
 };
