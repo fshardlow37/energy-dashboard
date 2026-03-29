@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline'; connect-src https://api.carbonintensity.org.uk https://data.elexon.co.uk;">
+  <title>energysrc</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div id="titlebar">
+    <span id="version"></span>
+    <button id="close-btn">&times;</button>
+  </div>
+  <div id="app">
+    <div id="demand-container">
+      <canvas id="demand-chart"></canvas>
+    </div>
+    <div id="mix-container">
+      <canvas id="mix-chart"></canvas>
+    </div>
+    <div id="tooltip" class="tooltip hidden"></div>
+    <div id="loading" class="loading hidden"></div>
+  </div>
+  <script src="bundle.js"></script>
+</body>
+</html>

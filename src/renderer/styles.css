@@ -1,0 +1,156 @@
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html, body {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: #1a1a2e;
+  color: #e0e0e0;
+  font-family: 'Segoe UI', Tahoma, sans-serif;
+  font-size: 12px;
+}
+
+#titlebar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 28px;
+  padding: 0 8px;
+  background: #16213e;
+  -webkit-app-region: drag;
+  user-select: none;
+}
+
+#titlebar #version {
+  font-size: 11px;
+  color: #888;
+}
+
+#titlebar #close-btn {
+  -webkit-app-region: no-drag;
+  background: none;
+  border: none;
+  color: #888;
+  font-size: 18px;
+  cursor: pointer;
+  padding: 0 4px;
+  line-height: 28px;
+}
+
+#titlebar #close-btn:hover {
+  color: #e74c3c;
+}
+
+#app {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  height: calc(100% - 28px);
+  padding: 4px;
+  gap: 4px;
+}
+
+#demand-container {
+  position: relative;
+  height: 80px;
+  min-height: 60px;
+  flex-shrink: 0;
+}
+
+#mix-container {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+}
+
+canvas {
+  width: 100% !important;
+  height: 100% !important;
+}
+
+.tooltip {
+  position: absolute;
+  background: rgba(22, 33, 62, 0.95);
+  border: 1px solid #333;
+  border-radius: 4px;
+  padding: 6px 8px;
+  font-size: 11px;
+  pointer-events: none;
+  z-index: 100;
+  white-space: nowrap;
+  max-width: 200px;
+}
+
+.tooltip.hidden {
+  display: none;
+}
+
+.tooltip .time {
+  color: #aaa;
+  margin-bottom: 4px;
+  font-weight: 600;
+}
+
+.tooltip .row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  line-height: 1.5;
+}
+
+.tooltip .dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.tooltip .label {
+  flex: 1;
+}
+
+.tooltip .value {
+  font-weight: 600;
+  text-align: right;
+}
+
+.tooltip .demand-row {
+  border-top: 1px solid #333;
+  margin-top: 4px;
+  padding-top: 4px;
+  color: #aaa;
+}
+
+.loading {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: #0f3460;
+  z-index: 50;
+}
+
+.loading::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 30%;
+  height: 100%;
+  background: #e94560;
+  animation: loading-slide 1s ease-in-out infinite;
+}
+
+.loading.hidden {
+  display: none;
+}
+
+@keyframes loading-slide {
+  0% { left: -30%; }
+  100% { left: 100%; }
+}

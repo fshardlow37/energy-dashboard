@@ -1,0 +1,25 @@
+{
+  "name": "energysrc",
+  "version": "0.1.6",
+  "description": "UK Power Generation Dashboard",
+  "main": "src/main/main.js",
+  "scripts": {
+    "start": "electron .",
+    "dev": "node scripts/dev.js",
+    "bundle": "node scripts/bundle.js",
+    "build": "node scripts/bump-version.js && node scripts/bundle.js && electron-builder --config electron-builder.config.js",
+    "postinstall": "electron-builder install-app-deps"
+  },
+  "devDependencies": {
+    "chokidar": "^4.0.0",
+    "electron": "^33.0.0",
+    "electron-builder": "^25.0.0",
+    "esbuild": "^0.27.4"
+  },
+  "dependencies": {
+    "chart.js": "^4.4.0",
+    "chartjs-adapter-date-fns": "^3.0.0",
+    "chartjs-plugin-zoom": "^2.2.0",
+    "date-fns": "^4.0.0"
+  }
+}
