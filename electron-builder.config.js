@@ -20,7 +20,7 @@ module.exports = {
   },
   mac: {
     target: ['dmg', 'zip'],
-    icon: 'assets/icon.ico',
+    icon: 'assets/icon.png',
     artifactName: 'energysrc-${arch}.${ext}',
     category: 'public.app-category.utilities'
   },

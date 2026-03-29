@@ -1,6 +1,6 @@
 {
   "name": "energysrc",
-  "version": "0.1.7",
+  "version": "0.1.8",
   "description": "UK Power Generation Dashboard",
   "main": "src/main/main.js",
   "scripts": {
@@ -14,7 +14,8 @@
     "chokidar": "^4.0.0",
     "electron": "^33.0.0",
     "electron-builder": "^25.0.0",
-    "esbuild": "^0.27.4"
+    "esbuild": "^0.27.4",
+    "png-js": "^1.0.0"
   },
   "dependencies": {
     "chart.js": "^4.4.0",
