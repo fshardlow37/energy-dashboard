@@ -18,7 +18,7 @@ jobs:
           node-version: 20
       - run: npm ci
       - run: node scripts/bundle.js
-      - run: npx electron-builder --win portable --config electron-builder.config.js
+      - run: npx electron-builder --win portable --config electron-builder.config.js --publish never
       - uses: actions/upload-artifact@v4
         with:
           name: windows
@@ -33,7 +33,7 @@ jobs:
           node-version: 20
       - run: npm ci
       - run: node scripts/bundle.js
-      - run: npx electron-builder --mac --config electron-builder.config.js
+      - run: npx electron-builder --mac --config electron-builder.config.js --publish never
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: false
       - uses: actions/upload-artifact@v4
