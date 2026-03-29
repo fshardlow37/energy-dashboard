@@ -1,14 +1,12 @@
 import { Chart } from 'chart.js';
-import { FUEL_COLORS, FUEL_LABELS } from './chartColors.js';
+import { getActiveAdapter } from '../data/adapters/adapterRegistry.js';
 import { nowLinePlugin, percLabelsPlugin } from './plugins.js';
 import { createTooltipHandler } from './tooltip.js';
 import { syncDemandScale, setSyncMixChart } from './demandChart.js';
 import * as dataManager from '../data/dataManager.js';
 
 let mixChart = null;
-let allSlots = []; // full dataset kept in memory
-
-const STACK_ORDER = ['hydro', 'coal', 'biomass', 'nuclear', 'imports', 'gas', 'solar', 'wind', 'other'];
+let allSlots = [];
 
 function handlePanComplete({ chart }) {
   const { min, max } = chart.scales.x;
@@ -23,13 +21,11 @@ function handlePanComplete({ chart }) {
   }
 }
 
-// Filter slots to visible range + 20% buffer on each side, then downsample
 function getVisibleData(fuel, xMin, xMax) {
   const buffer = (xMax - xMin) * 0.2;
   const lo = xMin - buffer;
   const hi = xMax + buffer;
 
-  // Binary search for start index
   let left = 0, right = allSlots.length;
   while (left < right) {
     const mid = (left + right) >> 1;
@@ -47,26 +43,20 @@ function getVisibleData(fuel, xMin, xMax) {
     }
   }
 
-  // Downsample with LTTB if too many points (keep max ~300)
   if (result.length > 300) {
     return lttbDownsample(result, 300);
   }
   return result;
 }
 
-// Largest Triangle Three Buckets downsampling
 function lttbDownsample(data, threshold) {
   if (data.length <= threshold) return data;
-
   const sampled = [data[0]];
   const bucketSize = (data.length - 2) / (threshold - 2);
-
   let a = 0;
   for (let i = 0; i < threshold - 2; i++) {
     const bucketStart = Math.floor((i + 1) * bucketSize) + 1;
     const bucketEnd = Math.min(Math.floor((i + 2) * bucketSize) + 1, data.length - 1);
-
-    // Average of next bucket for area calculation
     let avgX = 0, avgY = 0, count = 0;
     const nextStart = Math.floor((i + 2) * bucketSize) + 1;
     const nextEnd = Math.min(Math.floor((i + 3) * bucketSize) + 1, data.length - 1);
@@ -76,27 +66,21 @@ function lttbDownsample(data, threshold) {
       count++;
     }
     if (count > 0) { avgX /= count; avgY /= count; }
-
-    // Pick point in current bucket with largest triangle area
     const ax = data[a].x instanceof Date ? data[a].x.getTime() : data[a].x;
     const ay = data[a].y;
     let maxArea = -1, maxIdx = bucketStart;
-
     for (let j = bucketStart; j <= bucketEnd && j < data.length; j++) {
       const jx = data[j].x instanceof Date ? data[j].x.getTime() : data[j].x;
       const area = Math.abs((ax - avgX) * (data[j].y - ay) - (ax - jx) * (avgY - ay));
       if (area > maxArea) { maxArea = area; maxIdx = j; }
     }
-
     sampled.push(data[maxIdx]);
     a = maxIdx;
   }
-
   sampled.push(data[data.length - 1]);
   return sampled;
 }
 
-// Refresh chart data for current visible range
 function refreshVisibleData() {
   if (!mixChart) return;
   const xScale = mixChart.scales.x;
@@ -109,16 +93,17 @@ function refreshVisibleData() {
 export function createMixChart(canvasId) {
   const canvas = document.getElementById(canvasId);
   const container = canvas.parentElement;
+  const adapter = getActiveAdapter();
 
   const now = new Date();
   const threeDaysAgo = new Date(now.getTime() - 3 * 24 * 60 * 60 * 1000);
   const futureLimit = new Date(now.getTime() + 2 * 60 * 60 * 1000);
 
-  const datasets = STACK_ORDER.map(fuel => ({
-    label: FUEL_LABELS[fuel],
+  const datasets = adapter.stackOrder.map(fuel => ({
+    label: adapter.fuelLabels[fuel],
     data: [],
-    backgroundColor: FUEL_COLORS[fuel] + '99',
-    borderColor: FUEL_COLORS[fuel],
+    backgroundColor: adapter.fuelColors[fuel] + '99',
+    borderColor: adapter.fuelColors[fuel],
     borderWidth: 0.5,
     fill: 'stack',
     pointRadius: 0,
@@ -141,47 +126,26 @@ export function createMixChart(canvasId) {
           min: threeDaysAgo.getTime(),
           max: futureLimit.getTime(),
           time: {
-            displayFormats: {
-              hour: 'HH:mm',
-              day: 'EEE dd',
-              week: 'dd MMM',
-              month: 'MMM yy'
-            }
+            displayFormats: { hour: 'HH:mm', day: 'EEE dd', week: 'dd MMM', month: 'MMM yy' }
           },
           ticks: { color: '#666', maxRotation: 0, font: { size: 9 }, maxTicksLimit: 8 },
           grid: { color: '#252545' }
         },
         y: {
-          stacked: true,
-          min: 0,
-          max: 100,
-          ticks: {
-            color: '#666',
-            font: { size: 9 },
-            callback: v => v + '%',
-            stepSize: 25
-          },
+          stacked: true, min: 0, max: 100,
+          ticks: { color: '#666', font: { size: 9 }, callback: v => v + '%', stepSize: 25 },
           grid: { color: '#252545' }
         }
       },
       plugins: {
         legend: { display: false },
-        tooltip: {
-          enabled: false,
-          external: createTooltipHandler(container)
-        },
+        tooltip: { enabled: false, external: createTooltipHandler(container) },
         zoom: {
           pan: {
-            enabled: true,
-            mode: 'x',
-            onPanComplete: (ctx) => {
-              handlePanComplete(ctx);
-              refreshVisibleData();
-            }
+            enabled: true, mode: 'x',
+            onPanComplete: (ctx) => { handlePanComplete(ctx); refreshVisibleData(); }
           },
-          zoom: {
-            wheel: { enabled: false },
-          }
+          zoom: { wheel: { enabled: false } }
         }
       },
       interaction: { mode: 'index', intersect: false }
@@ -197,7 +161,7 @@ export function createMixChart(canvasId) {
     mixChart.update('none');
   });
 
-  // Smooth wheel scrolling — scale-only during animation, data refresh on stop
+  // Smooth wheel scrolling
   let scrollVelocity = 0;
   let scrolling = false;
   let frameCount = 0;
@@ -205,7 +169,6 @@ export function createMixChart(canvasId) {
   function animateScroll() {
     if (Math.abs(scrollVelocity) < 0.0001) {
       scrolling = false;
-      // Scroll stopped — do full data refresh for visible range
       refreshVisibleData();
       handlePanComplete({ chart: mixChart });
       return;
@@ -217,15 +180,9 @@ export function createMixChart(canvasId) {
     const newMax = xScale.max + shift;
     mixChart.options.scales.x.min = newMin;
     mixChart.options.scales.x.max = newMax;
-
-    // Only refresh data every 6th frame during scroll to stay fast
     frameCount++;
-    if (frameCount % 6 === 0) {
-      refreshVisibleData();
-    } else {
-      mixChart.update('none');
-    }
-
+    if (frameCount % 6 === 0) refreshVisibleData();
+    else mixChart.update('none');
     syncDemandScale(newMin, newMax);
     scrollVelocity *= 0.85;
     requestAnimationFrame(animateScroll);
@@ -236,14 +193,15 @@ export function createMixChart(canvasId) {
     const impulse = Math.sign(e.deltaY) * Math.min(Math.abs(e.deltaY), 150) * 0.0003;
     scrollVelocity += impulse;
     scrollVelocity = Math.max(-0.15, Math.min(0.15, scrollVelocity));
-    if (!scrolling) {
-      scrolling = true;
-      frameCount = 0;
-      requestAnimationFrame(animateScroll);
-    }
+    if (!scrolling) { scrolling = true; frameCount = 0; requestAnimationFrame(animateScroll); }
   }, { passive: false });
 
   return mixChart;
+}
+
+export function destroyMixChart() {
+  if (mixChart) { mixChart.destroy(); mixChart = null; }
+  allSlots = [];
 }
 
 export function updateMixData(slots) {

@@ -1,7 +1,10 @@
 const { ipcRenderer } = require('electron');
 
-// Expose API on window.energysrc
 window.energysrc = {
   getVersion: () => ipcRenderer.invoke('get-version'),
-  closeWindow: () => ipcRenderer.send('close-window')
+  closeWindow: () => ipcRenderer.send('close-window'),
+  getCountry: () => ipcRenderer.invoke('get-country'),
+  setCountry: (code) => ipcRenderer.invoke('set-country', code),
+  getApiKey: (code) => ipcRenderer.invoke('get-api-key', code),
+  setApiKey: (code, key) => ipcRenderer.invoke('set-api-key', code, key),
 };

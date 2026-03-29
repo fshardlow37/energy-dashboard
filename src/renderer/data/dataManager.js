@@ -1,13 +1,12 @@
-import { fetchGenerationMix, fetchDemand } from './api.js';
-import { getCachedRange, setCachedDay } from './cache.js';
-
-export const FUEL_TYPES = ['nuclear', 'wind', 'solar', 'hydro', 'biomass', 'imports', 'gas', 'coal', 'other'];
+import { loadAdapter, getActiveAdapter } from './adapters/adapterRegistry.js';
+import { getCachedRange, setCachedDay, setCountryPrefix } from './cache.js';
 
 let dataSlots = [];
 let earliestLoaded = null;
 let latestLoaded = null;
 let isLoading = false;
 let listeners = [];
+let currentApiKey = null;
 
 export function onDataChange(fn) { listeners.push(fn); }
 function emit() { listeners.forEach(fn => fn(dataSlots)); }
@@ -17,24 +16,13 @@ function showLoading(show) {
   if (el) el.classList.toggle('hidden', !show);
 }
 
-function alignTo30Min(date) {
+function alignToSlot(date) {
+  const adapter = getActiveAdapter();
+  const mins = adapter ? adapter.slotMinutes : 30;
   const d = new Date(date);
-  d.setMinutes(d.getMinutes() >= 30 ? 30 : 0, 0, 0);
+  const m = d.getMinutes();
+  d.setMinutes(Math.floor(m / mins) * mins, 0, 0);
   return d;
-}
-
-function parseMixData(rawData) {
-  const slots = [];
-  for (const entry of rawData) {
-    if (!entry.from || !entry.generationmix) continue;
-    const time = new Date(entry.from);
-    const mix = {};
-    for (const fuel of entry.generationmix) {
-      mix[fuel.fuel] = fuel.perc;
-    }
-    slots.push({ time, mix, demandMW: null });
-  }
-  return slots;
 }
 
 function mergeSlots(existing, incoming) {
@@ -58,7 +46,7 @@ function mergeSlots(existing, incoming) {
 function mergeDemand(slots, demandData) {
   const demandMap = new Map();
   for (const d of demandData) {
-    const aligned = alignTo30Min(d.time);
+    const aligned = alignToSlot(d.time);
     demandMap.set(aligned.getTime(), d.demandMW);
   }
   for (const slot of slots) {
@@ -97,6 +85,9 @@ function deserializeCached(cached) {
 }
 
 export async function initialize() {
+  const adapter = getActiveAdapter();
+  if (!adapter) return;
+
   const now = new Date();
   const threeDaysAgo = new Date(now.getTime() - 3 * 24 * 60 * 60 * 1000);
 
@@ -113,11 +104,11 @@ export async function initialize() {
 
   try {
     const [mixRaw, demandRaw] = await Promise.all([
-      fetchGenerationMix(threeDaysAgo, now),
-      fetchDemand(threeDaysAgo, now)
+      adapter.fetchGenerationMix(threeDaysAgo, now, currentApiKey),
+      adapter.fetchDemand(threeDaysAgo, now, currentApiKey)
     ]);
 
-    const mixSlots = parseMixData(mixRaw);
+    const mixSlots = adapter.parseMixData(mixRaw);
     const merged = mergeSlots(dataSlots, mixSlots);
     mergeDemand(merged, demandRaw);
     dataSlots = merged;
@@ -132,6 +123,9 @@ export async function initialize() {
 
 export async function loadMore(direction, days = 7) {
   if (isLoading) return;
+  const adapter = getActiveAdapter();
+  if (!adapter) return;
+
   isLoading = true;
   showLoading(true);
 
@@ -153,11 +147,11 @@ export async function loadMore(direction, days = 7) {
     }
 
     const [mixRaw, demandRaw] = await Promise.all([
-      fetchGenerationMix(from, to),
-      fetchDemand(from, to)
+      adapter.fetchGenerationMix(from, to, currentApiKey),
+      adapter.fetchDemand(from, to, currentApiKey)
     ]);
 
-    const mixSlots = parseMixData(mixRaw);
+    const mixSlots = adapter.parseMixData(mixRaw);
     const merged = mergeSlots(dataSlots, mixSlots);
     mergeDemand(merged, demandRaw);
     dataSlots = merged;
@@ -172,16 +166,20 @@ export async function loadMore(direction, days = 7) {
 }
 
 export async function refresh() {
+  const adapter = getActiveAdapter();
+  if (!adapter) return;
+
   const now = new Date();
-  const thirtyMinAgo = new Date(now.getTime() - 30 * 60 * 1000);
+  const slotMs = adapter.slotMinutes * 60 * 1000;
+  const recentStart = new Date(now.getTime() - slotMs);
 
   try {
     const [mixRaw, demandRaw] = await Promise.all([
-      fetchGenerationMix(thirtyMinAgo, now),
-      fetchDemand(thirtyMinAgo, now)
+      adapter.fetchGenerationMix(recentStart, now, currentApiKey),
+      adapter.fetchDemand(recentStart, now, currentApiKey)
     ]);
 
-    const mixSlots = parseMixData(mixRaw);
+    const mixSlots = adapter.parseMixData(mixRaw);
     const merged = mergeSlots(dataSlots, mixSlots);
     mergeDemand(merged, demandRaw);
     dataSlots = merged;
@@ -190,6 +188,18 @@ export async function refresh() {
   } catch (e) {
     console.warn('Refresh failed:', e.message);
   }
+}
+
+export async function switchCountry(code, apiKey) {
+  dataSlots = [];
+  earliestLoaded = null;
+  latestLoaded = null;
+  currentApiKey = apiKey;
+  emit();
+
+  setCountryPrefix(code);
+  loadAdapter(code);
+  await initialize();
 }
 
 export function getSlots() { return dataSlots; }

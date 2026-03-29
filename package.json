@@ -1,6 +1,6 @@
 {
   "name": "energysrc",
-  "version": "0.1.8",
+  "version": "0.1.9",
   "description": "UK Power Generation Dashboard",
   "main": "src/main/main.js",
   "scripts": {

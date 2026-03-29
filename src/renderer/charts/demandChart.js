@@ -197,4 +197,9 @@ export function syncDemandScale(xMin, xMax) {
   refreshVisibleDemand();
 }
 
+export function destroyDemandChart() {
+  if (demandChart) { demandChart.destroy(); demandChart = null; }
+  allSlots = [];
+}
+
 export function getDemandChart() { return demandChart; }

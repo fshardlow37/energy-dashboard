@@ -1,9 +1,17 @@
-const CACHE_KEY = 'energysrc-cache';
+let countryPrefix = 'UK';
 const MAX_AGE_DAYS = 90;
+
+function cacheKey() {
+  return `energysrc-cache-${countryPrefix}`;
+}
+
+export function setCountryPrefix(code) {
+  countryPrefix = code;
+}
 
 function loadCache() {
   try {
-    const raw = localStorage.getItem(CACHE_KEY);
+    const raw = localStorage.getItem(cacheKey());
     return raw ? JSON.parse(raw) : {};
   } catch {
     return {};
@@ -12,10 +20,10 @@ function loadCache() {
 
 function saveCache(cache) {
   try {
-    localStorage.setItem(CACHE_KEY, JSON.stringify(cache));
+    localStorage.setItem(cacheKey(), JSON.stringify(cache));
   } catch {
     evictOldEntries(cache);
-    try { localStorage.setItem(CACHE_KEY, JSON.stringify(cache)); } catch {}
+    try { localStorage.setItem(cacheKey(), JSON.stringify(cache)); } catch {}
   }
 }
 
