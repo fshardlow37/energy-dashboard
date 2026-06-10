@@ -4,7 +4,19 @@ const path = require('path');
 
 function createWindow() {
   const defaults = { width: 300, height: 500 };
-  const bounds = store.get('windowBounds', defaults);
+  let bounds = store.get('windowBounds', defaults);
+
+  // Guard against corrupt persisted bounds (would crash BrowserWindow)
+  if (!bounds || typeof bounds !== 'object' ||
+      !Number.isFinite(bounds.width) || !Number.isFinite(bounds.height)) {
+    bounds = { ...defaults };
+  }
+
+  // Drop non-numeric positions (would crash BrowserWindow)
+  if (bounds.x !== undefined && !(Number.isFinite(bounds.x) && Number.isFinite(bounds.y))) {
+    delete bounds.x;
+    delete bounds.y;
+  }
 
   // Validate saved position is on a visible display
   if (bounds.x !== undefined && bounds.y !== undefined) {
@@ -30,10 +42,11 @@ function createWindow() {
     frame: false,
     resizable: true,
     skipTaskbar: false,
+    icon: path.join(__dirname, '..', '..', 'assets', 'icon.ico'),
     webPreferences: {
       preload: path.join(__dirname, '..', 'preload.js'),
-      contextIsolation: false,
-      nodeIntegration: true
+      contextIsolation: true,
+      nodeIntegration: false
     }
   });
 

@@ -14,8 +14,8 @@ export const adapter = {
   requiresApiKey: false,
   slotMinutes: 30,
 
-  stackOrder: ['hydro', 'coal', 'biomass', 'nuclear', 'imports', 'gas', 'solar', 'wind', 'other'],
-  displayOrder: ['Wind', 'Solar', 'Gas', 'Imports', 'Nuclear', 'Biomass', 'Coal', 'Hydro', 'Other'],
+  stackOrder: ['nuclear', 'biomass', 'imports', 'hydro', 'wind', 'solar', 'other', 'coal', 'gas'],
+  displayOrder: ['Gas', 'Coal', 'Other', 'Solar', 'Wind', 'Hydro', 'Imports', 'Biomass', 'Nuclear'],
 
   fuelColors: {
     nuclear: '#9C27B0',

@@ -2,14 +2,21 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline'; connect-src https://api.carbonintensity.org.uk https://data.elexon.co.uk https://www.smard.de https://api.eia.gov;">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src https://api.carbonintensity.org.uk https://data.elexon.co.uk https://www.smard.de https://api.eia.gov;">
   <title>energysrc</title>
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
   <div id="titlebar">
-    <span id="version"></span>
-    <select id="country-select"></select>
+    <span id="app-title">energysrc <span id="version"></span></span>
+    <div id="titlebar-controls">
+      <label id="view-toggle" title="Toggle GW view">
+        <input type="checkbox" id="view-toggle-input">
+        <span class="toggle-slider"></span>
+        <span class="toggle-label">GW</span>
+      </label>
+      <select id="country-select"></select>
+    </div>
     <button id="close-btn">&times;</button>
   </div>
   <div id="app">
@@ -18,6 +25,9 @@
     </div>
     <div id="mix-container">
       <canvas id="mix-chart"></canvas>
+    </div>
+    <div id="combined-container" class="hidden">
+      <canvas id="combined-chart"></canvas>
     </div>
     <div id="tooltip" class="tooltip hidden"></div>
     <div id="loading" class="loading hidden"></div>

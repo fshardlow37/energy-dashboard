@@ -1,101 +1,147 @@
 /**
  * generate-icon.js
  *
- * Generates a valid .ico file for the energysrc app using only built-in
- * Node.js modules. The icon is a 32x32 image with a lightning bolt shape
- * on a dark background, stored as a 32-bit BGRA BMP inside the ICO container.
+ * Generates a multi-size .ico and a 512x512 .png for the energysrc app
+ * using only built-in Node.js modules.
  *
- * ICO format reference:
- *   - 6-byte file header  (ICONDIR)
- *   - 16-byte directory entry per image (ICONDIRENTRY)
- *   - BMP data per image (BITMAPINFOHEADER + pixel rows + AND mask)
+ * Design: lightning bolt on a circular dark background, accent color #e94560.
+ * ICO contains 16x16, 32x32, 48x48, and 256x256 images.
  */
 
 const fs = require('fs');
 const path = require('path');
+const zlib = require('zlib');
 
 // ---------------------------------------------------------------------------
-// Configuration
+// Colors
 // ---------------------------------------------------------------------------
-const SIZE = 32; // 32x32 icon
-const BG = { r: 30, g: 30, b: 40, a: 255 };        // dark blue-grey background
-const BOLT = { r: 255, g: 180, b: 20, a: 255 };     // orange-gold lightning bolt
-const GLOW = { r: 255, g: 220, b: 80, a: 180 };     // lighter glow around bolt
+const BG      = { r: 13,  g: 17,  b: 23,  a: 255 }; // #0d1117
+const CIRCLE  = { r: 22,  g: 27,  b: 34,  a: 255 }; // #161b22
+const BOLT    = { r: 233, g: 69,  b: 96,  a: 255 }; // #e94560
+const GLOW    = { r: 255, g: 120, b: 140, a: 100 }; // soft glow
+
+// Lightning bolt as normalized polygon (0-1 coords, relative to circle center)
+// Defined as two triangles forming the classic bolt shape
+const BOLT_UPPER = [
+  [0.08, -0.38],   // top-left of upper piece
+  [0.30, -0.38],   // top-right
+  [0.05, 0.05],    // bottom-right (meets bar)
+  [-0.18, 0.05],   // bottom-left (meets bar)
+];
+
+const BOLT_LOWER = [
+  [0.18, -0.05],   // top-right of lower piece
+  [-0.05, -0.05],  // top-left
+  [-0.08, 0.38],   // bottom-right
+  [-0.30, 0.38],   // bottom-left -- wait, let me redefine
+];
+
+// Simpler approach: define bolt as a single polygon path
+const BOLT_POLY = [
+  // Upper spike going down-right
+  [-0.05, -0.40],  // top tip
+  [0.25, -0.40],   // top right
+  [0.02, -0.02],   // middle right (bar junction)
+  [0.22, -0.02],   // bar right extension
+  // Lower spike going down-left
+  [0.05, 0.40],    // bottom tip
+  [-0.25, 0.40],   // bottom left
+  [-0.02, 0.02],   // middle left (bar junction)
+  [-0.22, 0.02],   // bar left extension
+];
 
 // ---------------------------------------------------------------------------
-// Draw the lightning bolt into a 32x32 BGRA pixel buffer (top-to-bottom)
+// Geometry helpers
 // ---------------------------------------------------------------------------
-function drawIcon() {
-  // pixels[y][x] = {r,g,b,a}
+function pointInPolygon(px, py, poly) {
+  let inside = false;
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const xi = poly[i][0], yi = poly[i][1];
+    const xj = poly[j][0], yj = poly[j][1];
+    if ((yi > py) !== (yj > py) && px < (xj - xi) * (py - yi) / (yj - yi) + xi) {
+      inside = !inside;
+    }
+  }
+  return inside;
+}
+
+function distToPolygonEdge(px, py, poly) {
+  let minDist = Infinity;
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const x1 = poly[i][0], y1 = poly[i][1];
+    const x2 = poly[j][0], y2 = poly[j][1];
+    const dx = x2 - x1, dy = y2 - y1;
+    const len2 = dx * dx + dy * dy;
+    let t = len2 === 0 ? 0 : ((px - x1) * dx + (py - y1) * dy) / len2;
+    t = Math.max(0, Math.min(1, t));
+    const cx = x1 + t * dx, cy = y1 + t * dy;
+    const d = Math.sqrt((px - cx) ** 2 + (py - cy) ** 2);
+    if (d < minDist) minDist = d;
+  }
+  return minDist;
+}
+
+function blendOver(base, over) {
+  const oa = over.a / 255;
+  const ba = base.a / 255;
+  const outA = oa + ba * (1 - oa);
+  if (outA === 0) return { r: 0, g: 0, b: 0, a: 0 };
+  return {
+    r: Math.round((over.r * oa + base.r * ba * (1 - oa)) / outA),
+    g: Math.round((over.g * oa + base.g * ba * (1 - oa)) / outA),
+    b: Math.round((over.b * oa + base.b * ba * (1 - oa)) / outA),
+    a: Math.round(outA * 255)
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Draw icon at a given size
+// ---------------------------------------------------------------------------
+function drawIcon(size) {
   const pixels = [];
-  for (let y = 0; y < SIZE; y++) {
+  const cx = size / 2, cy = size / 2;
+  const radius = size * 0.45;
+  const glowWidth = size >= 48 ? 2.5 / size : 1.5 / size; // normalized glow width
+
+  for (let y = 0; y < size; y++) {
     pixels[y] = [];
-    for (let x = 0; x < SIZE; x++) {
-      pixels[y][x] = { ...BG };
-    }
-  }
+    for (let x = 0; x < size; x++) {
+      // Normalized coordinates relative to center (-0.5 to 0.5)
+      const nx = (x - cx + 0.5) / size;
+      const ny = (y - cy + 0.5) / size;
+      const dist = Math.sqrt(nx * nx + ny * ny);
 
-  function set(x, y, color) {
-    if (x >= 0 && x < SIZE && y >= 0 && y < SIZE) {
-      pixels[y][x] = { ...color };
-    }
-  }
+      // Start with background
+      let color = { ...BG };
 
-  // Lightning bolt polygon defined as a list of (x, y) fill ranges per row.
-  // The bolt goes from top-center, angling right, then a sharp jag left,
-  // then down-right to the bottom.
-  //
-  // We'll define it with simple horizontal spans:
-  //   [y, x_start, x_end]  (inclusive)
+      // Draw circle
+      if (dist <= radius / size) {
+        // Anti-alias circle edge
+        const edgeDist = radius / size - dist;
+        if (edgeDist < 1 / size) {
+          const alpha = Math.min(1, edgeDist * size);
+          color = blendOver(color, { ...CIRCLE, a: Math.round(alpha * 255) });
+        } else {
+          color = { ...CIRCLE };
+        }
 
-  const boltSpans = [
-    // Top spike going down-left
-    [3,  15, 19],
-    [4,  14, 18],
-    [5,  13, 18],
-    [6,  12, 17],
-    [7,  12, 17],
-    [8,  11, 16],
-    [9,  10, 16],
-    [10, 10, 15],
-    [11,  9, 15],
-    [12,  9, 14],
-    [13,  8, 14],
-    // Horizontal bar (wide part where bolt jags)
-    [14,  8, 22],
-    [15,  9, 22],
-    // Lower spike going down-left
-    [16, 14, 21],
-    [17, 14, 20],
-    [18, 13, 20],
-    [19, 13, 19],
-    [20, 12, 19],
-    [21, 12, 18],
-    [22, 12, 18],
-    [23, 11, 17],
-    [24, 11, 17],
-    [25, 11, 16],
-    [26, 11, 16],
-    [27, 11, 15],
-    [28, 12, 15],
-  ];
+        // Check if inside bolt polygon (scale bolt to circle)
+        const bx = nx * 1.1; // slight scale adjustment
+        const by = ny * 1.1;
 
-  // Draw glow (1px border around bolt)
-  for (const [y, xs, xe] of boltSpans) {
-    for (let x = xs - 1; x <= xe + 1; x++) {
-      set(x, y, GLOW);
-    }
-    // Also glow one row above and below
-    for (let x = xs; x <= xe; x++) {
-      set(x, y - 1, GLOW);
-      set(x, y + 1, GLOW);
-    }
-  }
+        if (pointInPolygon(bx, by, BOLT_POLY)) {
+          color = { ...BOLT };
+        } else {
+          // Glow near bolt edges
+          const edgeDist2 = distToPolygonEdge(bx, by, BOLT_POLY);
+          if (edgeDist2 < glowWidth) {
+            const glowAlpha = (1 - edgeDist2 / glowWidth) * (GLOW.a / 255);
+            color = blendOver(color, { ...GLOW, a: Math.round(glowAlpha * 255) });
+          }
+        }
+      }
 
-  // Draw bolt on top of glow
-  for (const [y, xs, xe] of boltSpans) {
-    for (let x = xs; x <= xe; x++) {
-      set(x, y, BOLT);
+      pixels[y][x] = color;
     }
   }
 
@@ -103,129 +149,185 @@ function drawIcon() {
 }
 
 // ---------------------------------------------------------------------------
-// Encode as ICO
+// Encode multi-size ICO
 // ---------------------------------------------------------------------------
-function encodeICO(pixels) {
-  const width = SIZE;
-  const height = SIZE;
-  const bpp = 32; // bits per pixel
-
-  // BMP rows are stored bottom-to-top in ICO
-  const rowSize = width * 4; // 4 bytes per pixel (BGRA)
-  const pixelDataSize = rowSize * height;
-
-  // AND mask: 1 bit per pixel, rows padded to 4-byte boundary, bottom-to-top
-  const andRowBytes = Math.ceil(width / 8);
-  const andRowPadded = Math.ceil(andRowBytes / 4) * 4;
-  const andMaskSize = andRowPadded * height;
-
-  // BITMAPINFOHEADER is 40 bytes
-  const bmpHeaderSize = 40;
-  const imageDataSize = bmpHeaderSize + pixelDataSize + andMaskSize;
-
-  // ICO header: 6 bytes
-  // ICO directory entry: 16 bytes
+function encodeICO(allImages) {
   const headerSize = 6;
-  const dirEntrySize = 16;
-  const dataOffset = headerSize + dirEntrySize;
+  const numImages = allImages.length;
+  const dirSize = numImages * 16;
 
-  const totalSize = dataOffset + imageDataSize;
-  const buf = Buffer.alloc(totalSize);
-  let offset = 0;
+  // Pre-calculate each image's BMP data
+  const bmpDataList = allImages.map(({ size, pixels }) => {
+    const bpp = 32;
+    const rowSize = size * 4;
+    const pixelDataSize = rowSize * size;
+    const andRowPadded = Math.ceil(Math.ceil(size / 8) / 4) * 4;
+    const andMaskSize = andRowPadded * size;
+    const bmpHeaderSize = 40;
+    const totalImageSize = bmpHeaderSize + pixelDataSize + andMaskSize;
 
-  // --- ICONDIR header ---
-  buf.writeUInt16LE(0, offset);       // reserved, must be 0
-  offset += 2;
-  buf.writeUInt16LE(1, offset);       // type: 1 = ICO
-  offset += 2;
-  buf.writeUInt16LE(1, offset);       // number of images
-  offset += 2;
+    const buf = Buffer.alloc(totalImageSize);
+    let off = 0;
 
-  // --- ICONDIRENTRY ---
-  buf.writeUInt8(width < 256 ? width : 0, offset);   // width (0 means 256)
-  offset += 1;
-  buf.writeUInt8(height < 256 ? height : 0, offset);  // height (0 means 256)
-  offset += 1;
-  buf.writeUInt8(0, offset);           // color palette size (0 = no palette)
-  offset += 1;
-  buf.writeUInt8(0, offset);           // reserved
-  offset += 1;
-  buf.writeUInt16LE(1, offset);        // color planes
-  offset += 2;
-  buf.writeUInt16LE(bpp, offset);      // bits per pixel
-  offset += 2;
-  buf.writeUInt32LE(imageDataSize, offset);  // size of image data
-  offset += 4;
-  buf.writeUInt32LE(dataOffset, offset);     // offset to image data
-  offset += 4;
+    // BITMAPINFOHEADER
+    buf.writeUInt32LE(bmpHeaderSize, off); off += 4;
+    buf.writeInt32LE(size, off); off += 4;
+    buf.writeInt32LE(size * 2, off); off += 4;
+    buf.writeUInt16LE(1, off); off += 2;
+    buf.writeUInt16LE(bpp, off); off += 2;
+    buf.writeUInt32LE(0, off); off += 4;
+    buf.writeUInt32LE(pixelDataSize + andMaskSize, off); off += 4;
+    buf.writeInt32LE(0, off); off += 4;
+    buf.writeInt32LE(0, off); off += 4;
+    buf.writeUInt32LE(0, off); off += 4;
+    buf.writeUInt32LE(0, off); off += 4;
 
-  // --- BITMAPINFOHEADER ---
-  buf.writeUInt32LE(bmpHeaderSize, offset);  // header size
-  offset += 4;
-  buf.writeInt32LE(width, offset);           // width
-  offset += 4;
-  buf.writeInt32LE(height * 2, offset);      // height (doubled for ICO: XOR + AND)
-  offset += 4;
-  buf.writeUInt16LE(1, offset);              // planes
-  offset += 2;
-  buf.writeUInt16LE(bpp, offset);            // bits per pixel
-  offset += 2;
-  buf.writeUInt32LE(0, offset);              // compression (none)
-  offset += 4;
-  buf.writeUInt32LE(pixelDataSize + andMaskSize, offset); // image size
-  offset += 4;
-  buf.writeInt32LE(0, offset);               // X pixels per meter
-  offset += 4;
-  buf.writeInt32LE(0, offset);               // Y pixels per meter
-  offset += 4;
-  buf.writeUInt32LE(0, offset);              // colors used
-  offset += 4;
-  buf.writeUInt32LE(0, offset);              // important colors
-  offset += 4;
+    // Pixel data (BGRA, bottom-to-top)
+    for (let y = size - 1; y >= 0; y--) {
+      for (let x = 0; x < size; x++) {
+        const px = pixels[y][x];
+        buf.writeUInt8(px.b, off++);
+        buf.writeUInt8(px.g, off++);
+        buf.writeUInt8(px.r, off++);
+        buf.writeUInt8(px.a, off++);
+      }
+    }
 
-  // --- Pixel data (BGRA, bottom-to-top) ---
-  for (let y = height - 1; y >= 0; y--) {
-    for (let x = 0; x < width; x++) {
+    // AND mask (all 0 = opaque)
+    for (let y = size - 1; y >= 0; y--) {
+      for (let i = 0; i < andRowPadded; i++) {
+        buf.writeUInt8(0, off++);
+      }
+    }
+
+    return { size, buf };
+  });
+
+  // Calculate total file size
+  let dataOffset = headerSize + dirSize;
+  const totalSize = dataOffset + bmpDataList.reduce((sum, d) => sum + d.buf.length, 0);
+  const ico = Buffer.alloc(totalSize);
+  let off = 0;
+
+  // ICONDIR header
+  ico.writeUInt16LE(0, off); off += 2;
+  ico.writeUInt16LE(1, off); off += 2;
+  ico.writeUInt16LE(numImages, off); off += 2;
+
+  // ICONDIRENTRY for each image
+  let currentDataOffset = dataOffset;
+  for (const { size, buf } of bmpDataList) {
+    ico.writeUInt8(size < 256 ? size : 0, off++);
+    ico.writeUInt8(size < 256 ? size : 0, off++);
+    ico.writeUInt8(0, off++);
+    ico.writeUInt8(0, off++);
+    ico.writeUInt16LE(1, off); off += 2;
+    ico.writeUInt16LE(32, off); off += 2;
+    ico.writeUInt32LE(buf.length, off); off += 4;
+    ico.writeUInt32LE(currentDataOffset, off); off += 4;
+    currentDataOffset += buf.length;
+  }
+
+  // Image data
+  for (const { buf } of bmpDataList) {
+    buf.copy(ico, off);
+    off += buf.length;
+  }
+
+  return ico;
+}
+
+// ---------------------------------------------------------------------------
+// Encode PNG
+// ---------------------------------------------------------------------------
+function encodePNG(pixels, size) {
+  // Build raw image data: filter byte (0=None) + RGBA per row
+  const rawRows = [];
+  for (let y = 0; y < size; y++) {
+    const row = Buffer.alloc(1 + size * 4);
+    row[0] = 0; // filter: None
+    for (let x = 0; x < size; x++) {
       const px = pixels[y][x];
-      buf.writeUInt8(px.b, offset);     // Blue
-      offset += 1;
-      buf.writeUInt8(px.g, offset);     // Green
-      offset += 1;
-      buf.writeUInt8(px.r, offset);     // Red
-      offset += 1;
-      buf.writeUInt8(px.a, offset);     // Alpha
-      offset += 1;
+      const off = 1 + x * 4;
+      row[off] = px.r;
+      row[off + 1] = px.g;
+      row[off + 2] = px.b;
+      row[off + 3] = px.a;
     }
+    rawRows.push(row);
+  }
+  const rawData = Buffer.concat(rawRows);
+  const compressed = zlib.deflateSync(rawData);
+
+  function pngChunk(type, data) {
+    const buf = Buffer.alloc(4 + 4 + data.length + 4);
+    buf.writeUInt32BE(data.length, 0);
+    buf.write(type, 4, 4, 'ascii');
+    data.copy(buf, 8);
+    // CRC over type + data
+    const crcData = buf.slice(4, 8 + data.length);
+    buf.writeUInt32BE(crc32(crcData) >>> 0, 8 + data.length);
+    return buf;
   }
 
-  // --- AND mask (all 0 = fully opaque, since we use alpha channel) ---
-  // bottom-to-top order, each row padded to 4-byte boundary
-  for (let y = height - 1; y >= 0; y--) {
-    for (let i = 0; i < andRowPadded; i++) {
-      buf.writeUInt8(0, offset);
-      offset += 1;
+  // IHDR
+  const ihdr = Buffer.alloc(13);
+  ihdr.writeUInt32BE(size, 0);
+  ihdr.writeUInt32BE(size, 4);
+  ihdr[8] = 8;  // bit depth
+  ihdr[9] = 6;  // color type: RGBA
+  ihdr[10] = 0; // compression
+  ihdr[11] = 0; // filter
+  ihdr[12] = 0; // interlace
+
+  const signature = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
+  const chunks = [
+    signature,
+    pngChunk('IHDR', ihdr),
+    pngChunk('IDAT', compressed),
+    pngChunk('IEND', Buffer.alloc(0))
+  ];
+
+  return Buffer.concat(chunks);
+}
+
+// CRC32 for PNG chunks
+function crc32(buf) {
+  let crc = 0xFFFFFFFF;
+  for (let i = 0; i < buf.length; i++) {
+    crc ^= buf[i];
+    for (let j = 0; j < 8; j++) {
+      crc = (crc >>> 1) ^ (crc & 1 ? 0xEDB88320 : 0);
     }
   }
-
-  return buf;
+  return (crc ^ 0xFFFFFFFF) >>> 0;
 }
 
 // ---------------------------------------------------------------------------
 // Main
 // ---------------------------------------------------------------------------
 const outputDir = path.join(__dirname, '..', 'assets');
-const outputPath = path.join(outputDir, 'icon.ico');
-
-// Ensure output directory exists
 if (!fs.existsSync(outputDir)) {
   fs.mkdirSync(outputDir, { recursive: true });
 }
 
-console.log('Drawing 32x32 icon with lightning bolt...');
-const pixels = drawIcon();
+const icoSizes = [16, 32, 48, 256];
+console.log(`Generating icon at sizes: ${icoSizes.join(', ')}...`);
 
-console.log('Encoding ICO file...');
-const icoBuffer = encodeICO(pixels);
+const images = icoSizes.map(size => {
+  console.log(`  Drawing ${size}x${size}...`);
+  return { size, pixels: drawIcon(size) };
+});
 
-fs.writeFileSync(outputPath, icoBuffer);
-console.log(`Icon written to ${outputPath} (${icoBuffer.length} bytes)`);
+const icoBuffer = encodeICO(images);
+const icoPath = path.join(outputDir, 'icon.ico');
+fs.writeFileSync(icoPath, icoBuffer);
+console.log(`ICO written to ${icoPath} (${icoBuffer.length} bytes)`);
+
+// Generate 512x512 PNG for macOS
+console.log('  Drawing 512x512 PNG...');
+const pngPixels = drawIcon(512);
+const pngBuffer = encodePNG(pngPixels, 512);
+const pngPath = path.join(outputDir, 'icon.png');
+fs.writeFileSync(pngPath, pngBuffer);
+console.log(`PNG written to ${pngPath} (${pngBuffer.length} bytes)`);

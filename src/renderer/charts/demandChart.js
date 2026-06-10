@@ -5,6 +5,7 @@ import * as dataManager from '../data/dataManager.js';
 
 let demandChart = null;
 let allSlots = [];
+let removeWheelListener = null;
 let _syncMixChart = null;
 export function setSyncMixChart(fn) { _syncMixChart = fn; }
 
@@ -88,7 +89,7 @@ export function createDemandChart(canvasId) {
             }
           },
           ticks: { color: '#666', maxRotation: 0, font: { size: 9 }, maxTicksLimit: 6 },
-          grid: { color: '#252545' }
+          grid: { color: '#21262d' }
         },
         y: {
           ticks: {
@@ -97,7 +98,7 @@ export function createDemandChart(canvasId) {
             callback: v => (v / 1000).toFixed(0) + 'GW',
             maxTicksLimit: 4
           },
-          grid: { color: '#252545' }
+          grid: { color: '#21262d' }
         }
       },
       plugins: {
@@ -122,6 +123,7 @@ export function createDemandChart(canvasId) {
   let frameCount = 0;
 
   function animateScroll() {
+    if (!demandChart) { scrolling = false; return; }
     if (Math.abs(scrollVelocity) < 0.0001) {
       scrolling = false;
       refreshVisibleDemand();
@@ -151,7 +153,7 @@ export function createDemandChart(canvasId) {
     requestAnimationFrame(animateScroll);
   }
 
-  canvas.addEventListener('wheel', (e) => {
+  const onWheel = (e) => {
     e.preventDefault();
     const impulse = Math.sign(e.deltaY) * Math.min(Math.abs(e.deltaY), 150) * 0.0003;
     scrollVelocity += impulse;
@@ -161,12 +163,17 @@ export function createDemandChart(canvasId) {
       frameCount = 0;
       requestAnimationFrame(animateScroll);
     }
-  }, { passive: false });
+  };
+  // Remove any listener left over from a previous chart instance (canvas persists in the DOM)
+  if (removeWheelListener) removeWheelListener();
+  canvas.addEventListener('wheel', onWheel, { passive: false });
+  removeWheelListener = () => canvas.removeEventListener('wheel', onWheel);
 
   return demandChart;
 }
 
 export function updateDemandData(slots) {
+  if (!demandChart) return;
   allSlots = slots;
 
   // Compute weekly stats from all data (not just visible)
@@ -198,6 +205,7 @@ export function syncDemandScale(xMin, xMax) {
 }
 
 export function destroyDemandChart() {
+  if (removeWheelListener) { removeWheelListener(); removeWheelListener = null; }
   if (demandChart) { demandChart.destroy(); demandChart = null; }
   allSlots = [];
 }

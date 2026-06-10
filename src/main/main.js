@@ -17,12 +17,23 @@ app.whenReady().then(() => {
   }
 
   // IPC handlers
+  const isValidCode = (code) => typeof code === 'string' && /^[A-Z]{2}$/.test(code);
+
   ipcMain.handle('get-version', () => app.getVersion());
-  ipcMain.on('close-window', () => win.close());
+  ipcMain.on('close-window', () => { if (!win.isDestroyed()) win.close(); });
   ipcMain.handle('get-country', () => store.get('selectedCountry', 'UK'));
-  ipcMain.handle('set-country', (_, code) => { store.set('selectedCountry', code); });
-  ipcMain.handle('get-api-key', (_, code) => store.get(`apiKey-${code}`, null));
-  ipcMain.handle('set-api-key', (_, code, key) => { store.set(`apiKey-${code}`, key); });
+  ipcMain.handle('set-country', (_, code) => {
+    if (!isValidCode(code)) return;
+    store.set('selectedCountry', code);
+  });
+  ipcMain.handle('get-api-key', (_, code) => {
+    if (!isValidCode(code)) return null;
+    return store.get(`apiKey-${code}`, null);
+  });
+  ipcMain.handle('set-api-key', (_, code, key) => {
+    if (!isValidCode(code) || typeof key !== 'string' || key.length > 256) return;
+    store.set(`apiKey-${code}`, key);
+  });
 });
 
 app.on('window-all-closed', () => app.quit());

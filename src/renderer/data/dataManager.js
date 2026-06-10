@@ -7,6 +7,9 @@ let latestLoaded = null;
 let isLoading = false;
 let listeners = [];
 let currentApiKey = null;
+// Incremented on every country switch; in-flight fetches from a previous
+// country check this and discard their results instead of merging stale data.
+let epoch = 0;
 
 export function onDataChange(fn) { listeners.push(fn); }
 function emit() { listeners.forEach(fn => fn(dataSlots)); }
@@ -55,7 +58,29 @@ function mergeDemand(slots, demandData) {
       slot.demandMW = demandMap.get(key);
     }
   }
+  // Linearly interpolate demand for slots between known points
+  interpolateDemand(slots);
   return slots;
+}
+
+function interpolateDemand(slots) {
+  let prevIdx = -1;
+  for (let i = 0; i < slots.length; i++) {
+    if (slots[i].demandMW !== null && slots[i].demandMW > 0) {
+      if (prevIdx !== -1 && i - prevIdx > 1) {
+        const t0 = slots[prevIdx].time.getTime();
+        const t1 = slots[i].time.getTime();
+        const d0 = slots[prevIdx].demandMW;
+        const d1 = slots[i].demandMW;
+        for (let j = prevIdx + 1; j < i; j++) {
+          const t = slots[j].time.getTime();
+          const frac = (t - t0) / (t1 - t0);
+          slots[j].demandMW = d0 + frac * (d1 - d0);
+        }
+      }
+      prevIdx = i;
+    }
+  }
 }
 
 function cacheSlots(slots) {
@@ -88,6 +113,7 @@ export async function initialize() {
   const adapter = getActiveAdapter();
   if (!adapter) return;
 
+  const myEpoch = epoch;
   const now = new Date();
   const threeDaysAgo = new Date(now.getTime() - 3 * 24 * 60 * 60 * 1000);
 
@@ -107,6 +133,7 @@ export async function initialize() {
       adapter.fetchGenerationMix(threeDaysAgo, now, currentApiKey),
       adapter.fetchDemand(threeDaysAgo, now, currentApiKey)
     ]);
+    if (myEpoch !== epoch) return; // country switched while fetching
 
     const mixSlots = adapter.parseMixData(mixRaw);
     const merged = mergeSlots(dataSlots, mixSlots);
@@ -116,9 +143,9 @@ export async function initialize() {
     emit();
   } catch (e) {
     console.error('Failed to fetch initial data:', e);
+  } finally {
+    showLoading(false);
   }
-
-  showLoading(false);
 }
 
 export async function loadMore(direction, days = 7) {
@@ -128,6 +155,10 @@ export async function loadMore(direction, days = 7) {
 
   isLoading = true;
   showLoading(true);
+
+  const myEpoch = epoch;
+  const prevEarliest = earliestLoaded;
+  const prevLatest = latestLoaded;
 
   try {
     let from, to;
@@ -150,6 +181,7 @@ export async function loadMore(direction, days = 7) {
       adapter.fetchGenerationMix(from, to, currentApiKey),
       adapter.fetchDemand(from, to, currentApiKey)
     ]);
+    if (myEpoch !== epoch) return; // country switched while fetching
 
     const mixSlots = adapter.parseMixData(mixRaw);
     const merged = mergeSlots(dataSlots, mixSlots);
@@ -159,16 +191,22 @@ export async function loadMore(direction, days = 7) {
     emit();
   } catch (e) {
     console.error('Failed to load more data:', e);
+    // Restore range markers so a failed range can be retried
+    if (myEpoch === epoch) {
+      earliestLoaded = prevEarliest;
+      latestLoaded = prevLatest;
+    }
+  } finally {
+    isLoading = false;
+    showLoading(false);
   }
-
-  isLoading = false;
-  showLoading(false);
 }
 
 export async function refresh() {
   const adapter = getActiveAdapter();
   if (!adapter) return;
 
+  const myEpoch = epoch;
   const now = new Date();
   const slotMs = adapter.slotMinutes * 60 * 1000;
   const recentStart = new Date(now.getTime() - slotMs);
@@ -178,6 +216,7 @@ export async function refresh() {
       adapter.fetchGenerationMix(recentStart, now, currentApiKey),
       adapter.fetchDemand(recentStart, now, currentApiKey)
     ]);
+    if (myEpoch !== epoch) return; // country switched while fetching
 
     const mixSlots = adapter.parseMixData(mixRaw);
     const merged = mergeSlots(dataSlots, mixSlots);
@@ -191,6 +230,8 @@ export async function refresh() {
 }
 
 export async function switchCountry(code, apiKey) {
+  epoch++;
+  isLoading = false;
   dataSlots = [];
   earliestLoaded = null;
   latestLoaded = null;

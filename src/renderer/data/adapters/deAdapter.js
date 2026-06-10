@@ -55,8 +55,8 @@ export const adapter = {
   requiresApiKey: false,
   slotMinutes: 60,
 
-  stackOrder: ['pump_storage', 'other', 'hard_coal', 'lignite', 'nuclear', 'gas', 'biomass', 'hydro', 'solar', 'wind_onshore', 'wind_offshore'],
-  displayOrder: ['Wind Offshore', 'Wind Onshore', 'Solar', 'Hydro', 'Biomass', 'Gas', 'Nuclear', 'Lignite', 'Hard Coal', 'Pump Storage', 'Other'],
+  stackOrder: ['nuclear', 'lignite', 'biomass', 'hydro', 'wind_offshore', 'wind_onshore', 'solar', 'other', 'hard_coal', 'pump_storage', 'gas'],
+  displayOrder: ['Gas', 'Pump Storage', 'Hard Coal', 'Other', 'Solar', 'Wind Onshore', 'Wind Offshore', 'Hydro', 'Biomass', 'Lignite', 'Nuclear'],
 
   fuelColors: {
     wind_offshore: '#80DEEA',

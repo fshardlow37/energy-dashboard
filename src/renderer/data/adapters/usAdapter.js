@@ -2,7 +2,11 @@ const EIA_BASE = 'https://api.eia.gov/v2/electricity/rto';
 
 async function fetchJSON(url) {
   const res = await fetch(url);
-  if (!res.ok) throw new Error(`EIA error ${res.status}: ${url}`);
+  if (!res.ok) {
+    // Redact the API key so it never ends up in error messages or logs
+    const safeUrl = url.replace(/api_key=[^&]*/, 'api_key=***');
+    throw new Error(`EIA error ${res.status}: ${safeUrl}`);
+  }
   return res.json();
 }
 
@@ -29,8 +33,8 @@ export const adapter = {
   requiresApiKey: true,
   slotMinutes: 60,
 
-  stackOrder: ['oil', 'other', 'coal', 'nuclear', 'gas', 'hydro', 'solar', 'wind'],
-  displayOrder: ['Wind', 'Solar', 'Hydro', 'Gas', 'Nuclear', 'Coal', 'Oil', 'Other'],
+  stackOrder: ['nuclear', 'coal', 'hydro', 'wind', 'solar', 'other', 'oil', 'gas'],
+  displayOrder: ['Gas', 'Oil', 'Other', 'Solar', 'Wind', 'Hydro', 'Coal', 'Nuclear'],
 
   fuelColors: {
     wind:    '#FFFFFF',

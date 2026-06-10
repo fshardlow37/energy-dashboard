@@ -9,6 +9,7 @@ Chart.defaults.font.family = "'Segoe UI', Tahoma, sans-serif";
 import { initTitlebar } from './titlebar.js';
 import { createDemandChart, updateDemandData, destroyDemandChart } from './charts/demandChart.js';
 import { createMixChart, updateMixData, destroyMixChart } from './charts/mixChart.js';
+import { createCombinedChart, updateCombinedData, destroyCombinedChart } from './charts/combinedChart.js';
 import { getAvailableCountries, loadAdapter } from './data/adapters/adapterRegistry.js';
 import { initCountrySelector, setCountrySelector } from './ui/countrySelector.js';
 import { showApiKeyPrompt } from './ui/apiKeyPrompt.js';
@@ -16,6 +17,7 @@ import * as dataManager from './data/dataManager.js';
 
 let currentCountry = 'UK';
 let refreshInterval = null;
+let combinedMode = false;
 
 function startRefresh() {
   if (refreshInterval) clearInterval(refreshInterval);
@@ -23,8 +25,39 @@ function startRefresh() {
 }
 
 function onDataChange(slots) {
-  updateDemandData(slots);
-  updateMixData(slots);
+  if (combinedMode) {
+    updateCombinedData(slots);
+  } else {
+    updateDemandData(slots);
+    updateMixData(slots);
+  }
+}
+
+function switchView(combined) {
+  combinedMode = combined;
+  const demandContainer = document.getElementById('demand-container');
+  const mixContainer = document.getElementById('mix-container');
+  const combinedContainer = document.getElementById('combined-container');
+
+  if (combined) {
+    destroyDemandChart();
+    destroyMixChart();
+    demandContainer.style.display = 'none';
+    mixContainer.style.display = 'none';
+    combinedContainer.classList.remove('hidden');
+    createCombinedChart('combined-chart');
+  } else {
+    destroyCombinedChart();
+    combinedContainer.classList.add('hidden');
+    demandContainer.style.display = '';
+    mixContainer.style.display = '';
+    createDemandChart('demand-chart');
+    createMixChart('mix-chart');
+  }
+
+  // Re-feed current data to the new charts
+  const slots = dataManager.getSlots();
+  if (slots.length > 0) onDataChange(slots);
 }
 
 async function handleCountryChange(code) {
@@ -52,9 +85,14 @@ async function handleCountryChange(code) {
   // Destroy and recreate charts with new fuel config
   destroyDemandChart();
   destroyMixChart();
+  destroyCombinedChart();
 
-  createDemandChart('demand-chart');
-  createMixChart('mix-chart');
+  if (combinedMode) {
+    createCombinedChart('combined-chart');
+  } else {
+    createDemandChart('demand-chart');
+    createMixChart('mix-chart');
+  }
 
   // Switch data source and fetch
   await dataManager.switchCountry(code, apiKey);
@@ -64,13 +102,28 @@ async function handleCountryChange(code) {
 async function main() {
   await initTitlebar();
 
-  // Load saved country preference
+  // Load saved country preference (fall back to UK if unknown/corrupt)
   currentCountry = await window.energysrc.getCountry() || 'UK';
-  loadAdapter(currentCountry);
+  try {
+    loadAdapter(currentCountry);
+  } catch {
+    currentCountry = 'UK';
+    loadAdapter('UK');
+  }
 
   // Init country selector
   const countries = getAvailableCountries();
-  initCountrySelector(countries, currentCountry, handleCountryChange);
+  initCountrySelector(countries, currentCountry, (code) => {
+    handleCountryChange(code).catch((e) => {
+      console.error('Country switch failed:', e);
+      setCountrySelector(currentCountry);
+    });
+  });
+
+  // Toggle switch
+  document.getElementById('view-toggle-input').addEventListener('change', (e) => {
+    switchView(e.target.checked);
+  });
 
   // Create charts
   createDemandChart('demand-chart');
@@ -96,8 +149,13 @@ async function main() {
         await window.energysrc.setCountry('UK');
         destroyDemandChart();
         destroyMixChart();
-        createDemandChart('demand-chart');
-        createMixChart('mix-chart');
+        destroyCombinedChart();
+        if (combinedMode) {
+          createCombinedChart('combined-chart');
+        } else {
+          createDemandChart('demand-chart');
+          createMixChart('mix-chart');
+        }
       }
     }
   }
